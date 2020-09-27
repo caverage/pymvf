@@ -61,7 +61,7 @@ def main():
     pa = pyaudio.PyAudio()
     stream = pa.open(
         format=pyaudio.paFloat32,
-        channels=1,
+        channels=2,
         rate=SAMPLE_RATE,
         input=True,
         frames_per_buffer=BUFFER_SIZE,
