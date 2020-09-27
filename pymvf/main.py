@@ -1,76 +1,59 @@
-import audioop
 import signal
+from typing import List
 
-import aubio
 import numpy as np
 import pyaudio
 
-SAMPLE_RATE = 48000
-
-BUFFER_SIZE = 2048
-BEAT_BUFFER_SIZE = 128
-
-tempo = aubio.tempo("default", BUFFER_SIZE * 2, BUFFER_SIZE, SAMPLE_RATE)
+from pymvf.buffer import Buffer, Processor
 
 
-def process_amps(in_data):
-    mono = audioop.tomono(in_data, 4, 0.5, 0.5)
-    data = np.frombuffer(mono, dtype=np.float32)
-    fft = aubio.fft(BUFFER_SIZE)(data)
-    fb = aubio.filterbank(400, BUFFER_SIZE)
-    fb.set_power(2)
-    freqs = np.linspace(0, 20_000, 402)
-    fb.set_triangle_bands(aubio.fvec(freqs), SAMPLE_RATE)
+class PyMVF:
 
-    output = np.around(fb(fft), 2)
-    freqs = np.around(freqs[1:-1], 2)
+    buffer_size: int
+    sample_rate: int
+    channels: int
+    processor: Processor
+    buffers: List[Buffer]
 
-    maxpos = np.argmax(output)
-    print(f"Active Frequency: {freqs[maxpos]}")
+    def __init__(self, buffer_size: int, sample_rate: int, channels: int):
+        self.buffer_size = buffer_size
+        self.sample_rate = sample_rate
+        self.channels = channels
+        self.processor = Processor(
+            buffer_size=self.buffer_size, sample_rate=self.sample_rate
+        )
+        self.buffers = []
 
-    # for bin, amplitude in np.column_stack((freqs, output)):
-    #    if amplitude > 1:
-    #        print(f"{bin} : {amplitude}")
+    def pyaudio_callback(self, in_data, frame_count, time_info, flag):
+        buffer = self.processor.create_buffer(in_data)
 
+        self.buffers.append(buffer)
+        if len(self.buffers) >= 100:
+            self.buffers.pop()
 
-def process_channels(in_data):
-    data = np.frombuffer(in_data, dtype=np.float32)
-    left = data[0::2]
-    right = data[1::2]
+        print(chr(27) + "[2J")
+        print("\033[H")
 
-    print(f"Left: {np.array_str(left)}")
-    print(f"Right: {np.array_str(right)}")
+        maxpos = np.argmax(buffer.amplitudes)
+        print(f"Active Frequency: {buffer.frequencies[maxpos]}")
+        print(f"RMS: {buffer.rms}")
 
+        return (None, pyaudio.paContinue)
 
-def process_beat_detection(in_data):
-    mono = audioop.tomono(in_data, 4, 0.5, 0.5)
-    data = np.frombuffer(mono, dtype=np.float32)
-    beat = tempo(data)
-    print(f"BPM: {tempo.get_bpm()}")
+    def run(self):
+        pa = pyaudio.PyAudio()
+        pa.open(
+            format=pyaudio.paFloat32,
+            channels=self.channels,
+            rate=self.sample_rate,
+            input=True,
+            frames_per_buffer=self.buffer_size,
+            stream_callback=self.pyaudio_callback,
+        )
 
-
-def callback(in_data, frame_count, time_info, flag):
-    print(chr(27) + "[2J")
-    print("\033[H")
-    process_channels(in_data)
-    process_amps(in_data)
-    process_beat_detection(in_data)
-    return (None, pyaudio.paContinue)
-
-
-def main():
-    pa = pyaudio.PyAudio()
-    stream = pa.open(
-        format=pyaudio.paFloat32,
-        channels=2,
-        rate=SAMPLE_RATE,
-        input=True,
-        frames_per_buffer=BUFFER_SIZE,
-        stream_callback=callback,
-    )
-
-    signal.pause()
+        signal.pause()
 
 
 if __name__ == "__main__":
-    main()
+    pymvf = PyMVF(buffer_size=2048, sample_rate=44100, channels=2)
+    pymvf.run()
