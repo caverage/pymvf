@@ -86,8 +86,14 @@ class Buffer:
         self.left_channel_filterbank = self._get_filterbank(self.left_channel_array)
         self.right_channel_filterbank = self._get_filterbank(self.right_channel_array)
 
-        self.left_rms: float = audioop.rms(self.left_channel_array.tobytes(), 4)
-        self.right_rms: float = audioop.rms(self.right_channel_array.tobytes(), 4)
+        self.left_rms: float = np.sqrt(
+            sum(self.left_channel_array * self.left_channel_array)
+            / len(self.left_channel_array)
+        )
+        self.right_rms: float = np.sqrt(
+            sum(self.right_channel_array * self.right_channel_array)
+            / len(self.right_channel_array)
+        )
 
     def _get_filterbank(self, input_array: np.ndarray) -> tuple:
         fft = _fft(input_array)
