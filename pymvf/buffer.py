@@ -1,13 +1,16 @@
-import audioop
 from dataclasses import dataclass
 from typing import List
 
 import aubio
 import numpy as np
 
-from pymvf import BUFFER_SIZE, SAMPLE_RATE
+import audioop
+from pymvf import (
+    BUFFER_SIZE,
+    SAMPLE_RATE,
+)
 
-_bins = [
+FILTERBANK_BINS = [
     0,
     22,
     46,
@@ -63,25 +66,33 @@ _bins = [
 _fft: aubio.fft = aubio.fft(BUFFER_SIZE)
 _filter_bank: aubio.filterbank = aubio.filterbank(48, BUFFER_SIZE)
 _filter_bank.set_power(2)
-_filter_bank.set_triangle_bands(aubio.fvec(_bins), SAMPLE_RATE)
+_filter_bank.set_triangle_bands(aubio.fvec(FILTERBANK_BINS), SAMPLE_RATE)
 
 
 class Buffer:
-    def __init__(self, raw_data: bytes):
-        self.raw_data: bytes = raw_data
+    def __init__(self, timestamp: float, latency: float, stereo_buffer: bytes):
+        self.timestamp = timestamp
+        self.latency = latency
 
-        bins, amplitudes = self.calculate_bins(self.raw_data)
-        self.bins: np.ndarray = bins
-        self.amplitudes: np.ndarray = amplitudes
+        self.stereo_buffer: bytes = stereo_buffer
+        self.mono_buffer: bytes = audioop.tomono(self.stereo_buffer, 4, 0.5, 0.5)
 
-        self.rms: float = audioop.rms(self.raw_data, 4)
+        self.mono_array = np.frombuffer(self.mono_buffer, dtype=np.float32)
+        self.stereo_array = np.frombuffer(self.stereo_buffer, dtype=np.float32)
 
-    def calculate_bins(self, in_data: bytes) -> tuple:
-        mono = audioop.tomono(in_data, 4, 0.5, 0.5)
-        data = np.frombuffer(mono, dtype=np.float32)
+        self.left_channel_array = self.stereo_array[0::2]
+        self.right_channel_array = self.stereo_array[1::2]
 
-        fft = _fft(data)
-        amplitudes = np.around(_filter_bank(fft), 2)
-        bins = np.around(_bins[1:-1], 2)
+        self.left_channel_filterbank = self._get_filterbank(self.left_channel_array)
+        self.right_channel_filterbank = self._get_filterbank(self.right_channel_array)
 
-        return (bins, amplitudes)
+        self.left_rms: float = audioop.rms(self.left_channel_array.tobytes(), 4)
+        self.right_rms: float = audioop.rms(self.right_channel_array.tobytes(), 4)
+
+    def _get_filterbank(self, input_array: np.ndarray) -> tuple:
+        fft = _fft(input_array)
+        # we don't need much precision at all
+        amplitudes = np.around(_filter_bank(fft))
+        # don't include first and last bins
+
+        return np.column_stack((FILTERBANK_BINS, amplitudes))
