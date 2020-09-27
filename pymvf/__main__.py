@@ -8,6 +8,7 @@ import pyaudio
 from pymvf import (
     BUFFER_SIZE,
     SAMPLE_RATE,
+    Buffer,
 )
 
 BUFFER_QUEUE: Optional[mp.Queue] = None
@@ -47,8 +48,9 @@ def main():
     input_stream_process.start()
 
     while True:
-        timestamp, input_latency, buffer = BUFFER_QUEUE.get()
-        print(timestamp)
+        buffer = Buffer(*BUFFER_QUEUE.get())
+        print(buffer.timestamp)
+        print(f"{buffer.left_rms}:{buffer.right_rms}")
 
 
 if __name__ == "__main__":

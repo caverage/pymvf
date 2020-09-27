@@ -94,5 +94,6 @@ class Buffer:
         # we don't need much precision at all
         amplitudes = np.around(_filter_bank(fft))
         # don't include first and last bins
+        bins = FILTERBANK_BINS[1:-1]
 
-        return np.column_stack((FILTERBANK_BINS, amplitudes))
+        return np.column_stack((bins, amplitudes))
