@@ -16,7 +16,7 @@ STREAM: Optional[pyaudio.Stream] = None
 time.perf_counter()  # initialize the perf_counter
 
 
-def _callback(in_data, frame_count, time_info, flag):
+def _callback(in_data, frame_count, time_info, flag):  # pylint: disable=W0613
     input_latency = STREAM.get_input_latency()
     timestamp = time.perf_counter() - input_latency
 
@@ -26,7 +26,7 @@ def _callback(in_data, frame_count, time_info, flag):
 
 
 def input_stream():
-    global STREAM
+    global STREAM  # pylint: disable=global-statement
     STREAM = pyaudio.PyAudio().open(
         format=pyaudio.paFloat32,
         channels=2,
@@ -40,13 +40,12 @@ def input_stream():
 
 
 def main():
-    global BUFFER_QUEUE
+    global BUFFER_QUEUE  # pylint: disable=global-statement
     BUFFER_QUEUE = mp.Queue()
 
     input_stream_process = mp.Process(target=input_stream)
     input_stream_process.start()
 
-    time.sleep(5)
     while True:
         timestamp, input_latency, buffer = BUFFER_QUEUE.get()
         print(timestamp)
