@@ -14,7 +14,8 @@ tempo = aubio.tempo("default", BUFFER_SIZE * 2, BUFFER_SIZE, SAMPLE_RATE)
 
 
 def process_amps(in_data):
-    data = np.frombuffer(in_data, dtype=np.float32)
+    mono = audioop.tomono(in_data, 4, 0.5, 0.5)
+    data = np.frombuffer(mono, dtype=np.float32)
     fft = aubio.fft(BUFFER_SIZE)(data)
     fb = aubio.filterbank(400, BUFFER_SIZE)
     fb.set_power(2)
