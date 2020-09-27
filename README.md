@@ -1,20 +1,11 @@
-# Python Template Project
-
-This is a template project to be used to create new Python projects. Any new projects should derive from this project. This will ensure that the project is properly setup for Linting, Formatting, Testing, and CI/CD.
-
-This project include the following:
-
-    gitlint
-    pylint
-    black
-    isort
-    mypy
-    pytest
-    pytest-cov
+# Python Music Visualization Framework
+This framework is made to facilitate realtime music visualization for Caverage events.
 
 ## Setup
+This project requires Python >=3.7, Linux, and PortAudio.
 
-To install this template run the following from the project directory:
+### Dev Setup
+To install this framework for development run the following from the project directory:
 
 1. Create a venv:
         python3 -m venv .venv
@@ -25,24 +16,13 @@ To install this template run the following from the project directory:
 3. Install dependencies:
         python -m pip install -e ".[tests]"
 
-4. Run initial detect-secrets scan:
-        detect-secrets scan > .secrets.baseline
+#### Editor Setup
+Optimally your editor should be setup to run pylint, black, isort, and mypy when saving a file. You should ensure that the configuration is being pulled from the project directory (e.g. .pylintrc). Editors like Atom and VS Code's Python plugins will default to doing this, but you should ensure your editor behaves that way.
 
-## Usage
-
-### Editor Setup
-
-Optimally your editor should be setup to run pylint, black, isort, and mypy when saving a file. You should ensure that the configuration is being pulled from the project directory(e.g. .pylintrc). Editors like Atom and VS Code's Python plugins will default to doing this, but you should ensure your editor behaves that way.
-
-### Creating a module
-
-Every project should contain a single module in a folder named appropriately.
-
-### Running Tests
-
+#### Running Tests
 Tests can be ran with the following command, replacing $module_name with your module:
 
-    pytest --cov=$module_name --cov_config=setup.cfg
+    pytest --cov=pymvf --cov_config=setup.cfg
 
 Any files that begin with test_ in the tests will be automatically picked up by pytest. Running with the --cov flag will show the amount of code coverage for each file in the project.
 
