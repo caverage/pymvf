@@ -1,14 +1,10 @@
-from dataclasses import dataclass
+import audioop
 from typing import List
 
 import aubio
 import numpy as np
 
-import audioop
-from pymvf import (
-    BUFFER_SIZE,
-    SAMPLE_RATE,
-)
+from pymvf import BUFFER_SIZE, SAMPLE_RATE
 
 FILTERBANK_BINS = [
     0,

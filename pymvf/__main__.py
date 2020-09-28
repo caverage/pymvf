@@ -5,11 +5,7 @@ from typing import Optional
 
 import pyaudio
 
-from pymvf import (
-    BUFFER_SIZE,
-    SAMPLE_RATE,
-    Buffer,
-)
+from pymvf import BUFFER_SIZE, SAMPLE_RATE, Buffer
 
 BUFFER_QUEUE: Optional[mp.Queue] = None
 STREAM: Optional[pyaudio.Stream] = None
