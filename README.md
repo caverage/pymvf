@@ -8,13 +8,13 @@ This project requires Python >=3.7, Linux, and PortAudio.
 To install this framework for development run the following from the project directory:
 
 1. Create a venv:
-        python3 -m venv .venv
+        `python3 -m venv .venv`
 
 2. Activate venv:
-        source .venv/bin/activate
+        `source .venv/bin/activate`
 
 3. Install dependencies:
-        python -m pip install -e ".[tests]"
+        `python -m pip install -e ".[tests]"`
 
 #### Editor Setup
 Optimally your editor should be setup to run pylint, black, isort, and mypy when saving a file. You should ensure that the configuration is being pulled from the project directory (e.g. .pylintrc). Editors like Atom and VS Code's Python plugins will default to doing this, but you should ensure your editor behaves that way.
