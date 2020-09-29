@@ -4,6 +4,19 @@ This framework is made to facilitate realtime music visualization for Caverage e
 ## Setup
 This project requires Python >=3.7, Linux, and PortAudio.
 
+### Examples Setup
+A number of examples can be used if you install the `examples` version of the package:
+
+1. Create a venv:
+        `python3 -m venv .venv`
+
+2. Activate venv:
+        `source .venv/bin/activate`
+
+3. Install dependencies:
+        `python -m pip install -e ".[examples]"`
+
+
 ### Dev Setup
 To install this framework for development run the following from the project directory:
 
