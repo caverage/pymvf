@@ -11,28 +11,27 @@ class FilterBank:
     def __init__(self, sample_rate: int, buffer_size: int) -> None:
         self._fft = aubio.fft(buffer_size)
         self._filterbank = aubio.filterbank(len(FILTERBANK_BINS) - 2, buffer_size)
-        self._filterbank.set_power(3)
+        self._filterbank.set_power(5)
         self._filterbank.set_triangle_bands(aubio.fvec(FILTERBANK_BINS), sample_rate)
 
     def __call__(self, input_array: np.ndarray) -> np.ndarray:
         fft = self._fft(input_array)
         # we don't need much precision at all
-        energy = self._filterbank(fft)
+        energy = self._filterbank(fft).astype(np.uint32)
 
-        # don't include first and last bins
-        bins = FILTERBANK_BINS[1:-1]
-
-        return np.column_stack((bins, energy)).astype(np.uint32)
+        return energy
 
 
 class Buffer:
     def __init__(
         self,
+        buffer_id: int,
         timestamp: float,
         latency: float,
         stereo_buffer: bytes,
         filterbank: FilterBank,
     ):
+        self.id = buffer_id
         self.timestamp = timestamp
         self.latency = latency
 

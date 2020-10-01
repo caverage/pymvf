@@ -1,7 +1,8 @@
 import multiprocessing as mp
 import signal
 import time
-from typing import Optional
+from ctypes import c_longlong
+from typing import Optional, Tuple
 
 import pyaudio  # type: ignore
 
@@ -69,18 +70,26 @@ class PyMVF:
 
         self._buffer_queue: mp.Queue = mp.Queue()
 
+        self._manager = mp.Manager()
+        self._lock = self._manager.Lock()
+
+        # 'Q' | unsigned long long
+        self.buffer_counter = self._manager.Value("Q", 0)
+
         self._input_stream_process = mp.Process(target=self._input_stream)
         self._input_stream_process.start()
 
         self._filterbank = buffer.FilterBank(self.sample_rate, self.buffer_size)
 
         while True:
-            timestamp, latency, stereo_buffer = self._buffer_queue.get()
+            buffer_id, timestamp, latency, stereo_buffer = self._buffer_queue.get()
             output_queue.put(
-                buffer.Buffer(timestamp, latency, stereo_buffer, self._filterbank)
+                buffer.Buffer(
+                    buffer_id, timestamp, latency, stereo_buffer, self._filterbank
+                )
             )
 
-    def _input_stream(self):
+    def _input_stream(self) -> None:
         self.stream = pyaudio.PyAudio().open(
             format=pyaudio.paFloat32,
             channels=2,
@@ -92,9 +101,13 @@ class PyMVF:
         signal.pause()
 
     def _callback(self, in_data, frame_count, time_info, flag):  # pylint: disable=W0613
+        with self._lock:
+            self.buffer_counter.value += 1
         timestamp = time.perf_counter()
         input_latency = self.stream.get_input_latency()
 
-        self._buffer_queue.put((timestamp, input_latency, in_data))
+        self._buffer_queue.put(
+            (self.buffer_counter.value, timestamp, input_latency, in_data)
+        )
 
         return (None, pyaudio.paContinue)

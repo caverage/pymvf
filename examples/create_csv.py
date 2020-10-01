@@ -9,7 +9,6 @@ Args:
 import csv
 import multiprocessing as mp
 import sys
-import time
 from typing import List
 
 import numpy as np
@@ -21,12 +20,11 @@ OUTPUT_QUEUE: mp.Queue = mp.Queue()
 PYMVF_PROCESS = mp.Process(target=pymvf.PyMVF, args=(OUTPUT_QUEUE,))
 PYMVF_PROCESS.start()
 
-next_print = time.monotonic() + 1
-
 
 def main() -> None:
     with open(sys.argv[1], "w", newline="") as output_csv:
         fieldnames: List[str] = [
+            "id",
             "timestamp",
             "latency",
             "channel",
@@ -39,10 +37,14 @@ def main() -> None:
             buffer = OUTPUT_QUEUE.get()
 
             left_channel = {
-                bin: energy for [bin, energy] in buffer.left_channel_filterbank
+                bin: energy
+                for bin, energy in zip(
+                    pymvf.FILTERBANK_BINS[1:-1], buffer.left_channel_filterbank
+                )
             }
             csv_writer.writerow(
                 {
+                    "id": buffer.id,
                     "timestamp": buffer.timestamp,
                     "latency": buffer.latency,
                     "channel": "left",
@@ -52,10 +54,14 @@ def main() -> None:
             )
 
             right_channel = {
-                bin: energy for [bin, energy] in buffer.right_channel_filterbank
+                bin: energy
+                for bin, energy in zip(
+                    pymvf.FILTERBANK_BINS[1:-1], buffer.left_channel_filterbank
+                )
             }
             csv_writer.writerow(
                 {
+                    "id": buffer.id,
                     "timestamp": buffer.timestamp,
                     "latency": buffer.latency,
                     "channel": "right",
