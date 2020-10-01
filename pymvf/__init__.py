@@ -58,27 +58,26 @@ FILTERBANK_BINS = [
     20000,
 ]
 
+# FILTERBANK_BINS needs defined before these imports
 from . import buffer  # isort:skip
 
 
 class PyMVF:
-    def __init__(
-        self, output_queue: mp.Queue, sample_rate: int = 44100, buffer_size: int = 512
-    ):
-        self.sample_rate = sample_rate
-        self.buffer_size = buffer_size
+    def __init__(self, output_queue: mp.Queue):
+        self.sample_rate = 44100
+        self.buffer_size = 512
 
-        self.buffer_queue: mp.Queue = mp.Queue()
+        self._buffer_queue: mp.Queue = mp.Queue()
 
-        self.input_stream_process = mp.Process(target=self._input_stream)
-        self.input_stream_process.start()
+        self._input_stream_process = mp.Process(target=self._input_stream)
+        self._input_stream_process.start()
 
-        self.filterbank = buffer.FilterBank(self.sample_rate, self.buffer_size)
+        self._filterbank = buffer.FilterBank(self.sample_rate, self.buffer_size)
 
         while True:
-            timestamp, latency, stereo_buffer = self.buffer_queue.get()
+            timestamp, latency, stereo_buffer = self._buffer_queue.get()
             output_queue.put(
-                buffer.Buffer(timestamp, latency, stereo_buffer, self.filterbank)
+                buffer.Buffer(timestamp, latency, stereo_buffer, self._filterbank)
             )
 
     def _input_stream(self):
@@ -96,10 +95,6 @@ class PyMVF:
         timestamp = time.perf_counter()
         input_latency = self.stream.get_input_latency()
 
-        self.buffer_queue.put((timestamp, input_latency, in_data))
+        self._buffer_queue.put((timestamp, input_latency, in_data))
 
         return (None, pyaudio.paContinue)
-
-
-if __name__ == "__main__":
-    PyMVF()
