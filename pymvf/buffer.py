@@ -11,8 +11,17 @@ class FilterBank:
     def __init__(self, sample_rate: int, buffer_size: int) -> None:
         self._fft = aubio.fft(buffer_size)
         self._filterbank = aubio.filterbank(len(FILTERBANK_BINS) - 2, buffer_size)
-        self._filterbank.set_power(5)
+        self._filterbank.set_power(3)
         self._filterbank.set_triangle_bands(aubio.fvec(FILTERBANK_BINS), sample_rate)
+
+        coefficients = self._filterbank.get_coeffs()
+
+        # increase the relative power of the higher bins
+        for i, coefficient in enumerate(coefficients):
+            # first 2 coefficients stay the same
+            coefficients[i] = coefficient * (i ** 2.2)
+
+        self._filterbank.set_coeffs(coefficients)
 
     def __call__(self, input_array: np.ndarray) -> np.ndarray:
         fft = self._fft(input_array)
