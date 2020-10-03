@@ -4,6 +4,7 @@ import time
 from ctypes import c_longlong
 from typing import Optional, Tuple
 
+import numpy as np  # type: ignore
 import pyaudio  # type: ignore
 
 # Bin sizes designed around Equivalent Rectangular Bandwidth
