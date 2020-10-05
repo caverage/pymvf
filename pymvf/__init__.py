@@ -90,6 +90,11 @@ class PyMVF:
 
         while True:
             buffer_id, timestamp, latency, stereo_buffer = self._buffer_queue.get()
+            # pyaudio does not give good date for the first several buffers
+            # a conservative amount of delay is introduced here
+            if buffer_id < 10 or (buffer_id * self.buffer_size) < 5000:
+                continue
+
             output_queue.put(
                 buffer.Buffer(
                     buffer_id, timestamp, latency, stereo_buffer, self._filterbank

@@ -21,17 +21,9 @@ PYMVF_PROCESS.start()
 
 def main() -> None:
     plt.rcdefaults()
-
-    # wait for pyaudio to actually start sending us some usable data
-    buffer_id = 0
-    while buffer_id < 5:
-        buffer_id = OUTPUT_QUEUE.get().id
-
     print("Starting")
     # init all the variables with the first buffer
     buffer = OUTPUT_QUEUE.get()
-    max_left = buffer.left_channel_filterbank
-    max_right = buffer.right_channel_filterbank
 
     next_plot = time.monotonic() + 1
     plt.ion()
