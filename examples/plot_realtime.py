@@ -74,7 +74,6 @@ def main() -> None:
                 f"plotting: {buffer.id}\nskipped: {buffer.id - previous_buffer_id - 1}"
             )
             previous_buffer_id = buffer.id
-            next_plot = time.monotonic() + float(sys.argv[1])
 
             for rect, energy in zip(left_channel, buffer.left_channel_filterbank):
                 rect.set_height(energy)
