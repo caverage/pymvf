@@ -27,7 +27,7 @@ def main() -> None:
     while buffer_id < 5:
         buffer_id = OUTPUT_QUEUE.get().id
 
-    print(f"Starting")
+    print("Starting")
     # init all the variables with the first buffer
     buffer = OUTPUT_QUEUE.get()
     max_left = buffer.left_channel_filterbank
