@@ -31,6 +31,7 @@ class FilterBank:
         return energy
 
 
+# FIXME: turn into a data class and use a constructor function instead
 class Buffer:
     def __init__(
         self,
