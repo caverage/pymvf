@@ -19,7 +19,7 @@ class FilterBank:
         # increase the relative power of the higher bins
         for i, coefficient in enumerate(coefficients):
             # first 2 coefficients stay the same
-            coefficients[i] = coefficient * (i ** 2.2)
+            coefficients[i] = coefficient * (i ** 2.8)
 
         self._filterbank.set_coeffs(coefficients)
 

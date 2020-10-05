@@ -80,11 +80,12 @@ class PyMVF:
         self._manager = mp.Manager()
         self._lock = self._manager.Lock()
 
-        # 'Q' | unsigned long long
+        # 'Q' is unsigned long long
         self.buffer_counter = self._manager.Value("Q", 0)
 
         self._input_stream_process = mp.Process(target=self._input_stream)
         self._input_stream_process.start()
+        self.stream = None
 
         self._filterbank = buffer.FilterBank(self.sample_rate, self.buffer_size)
 
