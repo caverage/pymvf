@@ -1,72 +1,161 @@
+import logging
+from collections import namedtuple
 from dataclasses import dataclass
-from typing import Callable, Tuple
+from typing import Dict, List, Tuple
 
-import aubio
-import numpy as np
+import aubio  # type:ignore
+import numpy as np  # type:ignore
 
-from pymvf import FILTERBANK_BINS
+from pymvf import signal_processing
 
-
-class FilterBank:
-    def __init__(self, sample_rate: int, buffer_size: int) -> None:
-        self._fft = aubio.fft(buffer_size)
-        self._filterbank = aubio.filterbank(len(FILTERBANK_BINS) - 2, buffer_size)
-        self._filterbank.set_power(3)
-        self._filterbank.set_triangle_bands(aubio.fvec(FILTERBANK_BINS), sample_rate)
-
-        coefficients = self._filterbank.get_coeffs()
-
-        # increase the relative power of the higher bins
-        for i, coefficient in enumerate(coefficients):
-            # first 2 coefficients stay the same
-            coefficients[i] = coefficient * (i ** 2.8)
-
-        self._filterbank.set_coeffs(coefficients)
-
-    def __call__(self, input_array: np.ndarray) -> np.ndarray:
-        fft = self._fft(input_array)
-        # we don't need much precision at all
-        energy = self._filterbank(fft).astype(np.uint32)
-
-        return energy
+LOGGER = logging.getLogger(__name__)
 
 
-# FIXME: turn into a data class and use a constructor function instead
+@dataclass
 class Buffer:
-    def __init__(
-        self,
-        buffer_id: int,
-        timestamp: float,
-        latency: float,
-        stereo_buffer: bytes,
-        filterbank: FilterBank,
-    ):
-        self.id = buffer_id
-        self.timestamp = timestamp
-        self.latency = latency
+    """ Class for holding data for a single buffer
 
-        self.stereo_buffer: bytes = stereo_buffer
+    Attributes:
+        id: identification number of the buffer
+        timestamp: time that the buffer was recieved
+        filterbank: mono filterbank
+        left_filterbank: filterbank of left channel
+        right_filterbank: filterbank of right channel
+        rms: root mean square (continuous power) of buffer
+        left_rms: root mean square (continuous power) of left channel
+        right_rms: root mean square (continuous power) of right channel
+        beat: if the Buffer is a beat
+    """
 
-        self.stereo_array = np.frombuffer(self.stereo_buffer, dtype=np.float32)
+    id: int
+    timestamp: float
 
-        stereo_2d = np.reshape(self.stereo_array, (int(len(self.stereo_array) / 2), 2))
+    mono_filterbank: np.ndarray
+    left_filterbank: np.ndarray
+    right_filterbank: np.ndarray
 
-        self.left_channel_array = stereo_2d[:, 0].copy()
-        self.right_channel_array = stereo_2d[:, 1].copy()
+    mono_bin_rms: Dict[Tuple[int, int], float]
+    left_bin_rms: Dict[Tuple[int, int], float]
+    right_bin_rms: Dict[Tuple[int, int], float]
 
-        self.mono_array = np.add(
-            self.left_channel_array / 2, self.right_channel_array / 2
-        )
+    mono_rms: float
+    left_rms: float
+    right_rms: float
 
-        self.left_channel_filterbank = filterbank(self.left_channel_array)
-        self.right_channel_filterbank = filterbank(self.right_channel_array)
+    beat: bool
 
-        # https://stackoverflow.com/a/9763652/1342874
-        self.left_rms: float = np.sqrt(
-            sum(self.left_channel_array * self.left_channel_array)
-            / len(self.left_channel_array)
-        )
-        self.right_rms: float = np.sqrt(
-            sum(self.right_channel_array * self.right_channel_array)
-            / len(self.right_channel_array)
-        )
+
+def split_channels(stereo_array: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """ split the channels of a stereo array
+
+    Args:
+        stereo_array: the stereo array to split
+
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: left channel, right channel
+    """
+
+    stereo_2d = np.reshape(stereo_array, (int(len(stereo_array) / 2), 2))
+
+    left_channel_array = stereo_2d[:, 0].copy()
+    right_channel_array = stereo_2d[:, 1].copy()
+
+    return left_channel_array, right_channel_array
+
+
+def create_buffer(
+    buffer_id: int,
+    timestamp: float,
+    stereo_buffer: bytes,
+    left_calculate_bin_rms: signal_processing.CalculateBinRMS,
+    right_calculate_bin_rms: signal_processing.CalculateBinRMS,
+) -> Buffer:
+    """ Create a Buffer
+
+    Args:
+        buffer_id: the id of the input buffer
+        timestamp: when the buffer was returned by portaudio
+        latency: the latency of the audio system as reported by portaudio
+        stereo_buffer: the two channel buffer
+
+    Returns:
+        Buffer: the buffer object
+    """
+
+    stereo_array = np.frombuffer(stereo_buffer, dtype=np.float32)
+
+    left_channel_array, right_channel_array = split_channels(stereo_array)
+    mono_array = np.add(left_channel_array / 2, right_channel_array / 2)
+
+    left_bin_rms = left_calculate_bin_rms(left_channel_array)
+    right_bin_rms = right_calculate_bin_rms(right_channel_array)
+    mono_bin_rms = {}
+    for bin_ in left_bin_rms.keys():
+        mono_bin_rms[bin_] = (left_bin_rms[bin_] + right_bin_rms[bin_]) / 2
+
+    mono_filterbank = None
+    left_filterbank = None
+    right_filterbank = None
+
+    mono_rms = signal_processing.get_rms(mono_array)
+    left_rms = signal_processing.get_rms(left_channel_array)
+    right_rms = signal_processing.get_rms(right_channel_array)
+
+    beat = None
+
+    return Buffer(
+        id=buffer_id,
+        timestamp=timestamp,
+        mono_bin_rms=mono_bin_rms,
+        left_bin_rms=left_bin_rms,
+        right_bin_rms=right_bin_rms,
+        mono_filterbank=mono_filterbank,
+        left_filterbank=left_filterbank,
+        right_filterbank=right_filterbank,
+        mono_rms=mono_rms,
+        left_rms=left_rms,
+        right_rms=right_rms,
+        beat=beat,
+    )
+
+
+# class Buffer:
+#     def __init__(
+#         self,
+#         buffer_id: int,
+#         timestamp: float,
+#         latency: float,
+#         stereo_buffer: bytes,
+#         filterbank: signal.FilterBank,
+#         sample_rate: int,
+#         buffer_size: int,
+#     ):
+#         self.id = buffer_id
+#         self.timestamp = timestamp
+#         self.latency = latency
+#
+#         self.stereo_buffer: bytes = stereo_buffer
+#
+#         self.stereo_array = np.frombuffer(self.stereo_buffer, dtype=np.float32)
+#
+#         stereo_2d = np.reshape(self.stereo_array, (int(len(self.stereo_array) / 2), 2))
+#
+#         self.left_channel_array = stereo_2d[:, 0].copy()
+#         self.right_channel_array = stereo_2d[:, 1].copy()
+#
+#         self.mono_array = np.add(
+#             self.left_channel_array / 2, self.right_channel_array / 2
+#         )
+#
+#         self.left_channel_filterbank = filterbank(self.left_channel_array)
+#         self.right_channel_filterbank = filterbank(self.right_channel_array)
+#
+#         # https://stackoverflow.com/a/9763652/1342874
+#         self.left_rms: float = np.sqrt(
+#             sum(self.left_channel_array * self.left_channel_array)
+#             / len(self.left_channel_array)
+#         )
+#         self.right_rms: float = np.sqrt(
+#             sum(self.right_channel_array * self.right_channel_array)
+#             / len(self.right_channel_array)
+#         )
