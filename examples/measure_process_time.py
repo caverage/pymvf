@@ -6,12 +6,14 @@ import multiprocessing as mp
 import os
 import sys
 import time
+from collections import deque
 
+import numpy as np  # type:ignore
 import psutil  # type:ignore
 
 import pymvf
 
-logging.basicConfig(filename="cli_live_bin_rms.log", level=10)
+logging.basicConfig(filename="cli_live_bin_rms.log", level=20)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -48,35 +50,48 @@ def main() -> None:
     )
     pymvf_process.start()
 
+    rolling_delays = [
+        deque([], maxlen=5),
+        deque([], maxlen=50),
+        deque([], maxlen=500),
+    ]
+    time_per_buffer = 512 / 44100
     start_time = None
     while True:
         if start_time is None:
-            buffer = output_queue.get()
+            _ = output_queue.get()
             start_time = time.monotonic()
+            previous_time = start_time
 
-        real_time = time.monotonic() - start_time
         buffer = output_queue.get()
+        current_time = time.monotonic()
+        delay = current_time - previous_time
+        previous_time = current_time
 
-        LOGGER.info(f"plotting buffer {buffer.id}")
+        for rolling_delay in rolling_delays:
+            rolling_delay.append(delay)
+
+        plotted_buffers = buffer.id - buffer_discard_qty
+        audio_time = (plotted_buffers * time_per_buffer) - time_per_buffer
+        delta = (current_time - start_time) - audio_time
 
         # clear screen
         print(chr(27) + "[2J")
         # move cursor to (1,1)
         print(chr(27) + "[1;1f")
 
-        # FIXME: something is wrong here, the delta should never be negative but is
-        time_per_buffer = 512 / 44100
-        plotted_buffers = buffer.id - buffer_discard_qty
-        audio_time = (plotted_buffers * time_per_buffer) - time_per_buffer
-        delta = real_time - audio_time
         print(
-            f"Real Time: {round(real_time,2)}\n"
+            f"Buffer: {buffer.id - buffer_discard_qty}\n"
+            f"Real Time: {round(current_time-start_time,3)}\n"
             f"Audio Time: {round(audio_time,2)}\n"
-            f"Delta: {round(delta,2)}"
+            f"Delta: {round(delta,2)}\n"
+            f"Break Even:{round(time_per_buffer,5)}\n"
+            f"Delay 1: {round(delay,5)}\n"
+            f"Delay 1: {round(delay,5)}\n"
+            f"Delay 5: {round(np.sum(rolling_delays[0])/len(rolling_delays[0]),5)}\n"
+            f"Delay 50: {round(np.sum(rolling_delays[1])/len(rolling_delays[1]),5)}\n"
+            f"Delay 500: {round(np.sum(rolling_delays[2])/len(rolling_delays[2]),5)}\n"
         )
-
-        for bin_, bin_amplitude in buffer.mono_bin_rms.items():
-            print(f"{bin_:}" + "-" * int(bin_amplitude * 100))
 
 
 if __name__ == "__main__":

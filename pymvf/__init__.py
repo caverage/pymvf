@@ -30,7 +30,10 @@ class PyaudioCallback:
 
 class PyMVF:
     def __init__(
-        self, bin_edges: List[int], output_queue: mp.Queue, buffer_discard_qty: int = 10
+        self,
+        bin_edges: List[int],
+        output_queue: mp.Queue,
+        buffer_discard_qty: int = int(44100 / 512),
     ):
         LOGGER.info("Initializing PyMVF")
         self.sample_rate = 44100
@@ -40,10 +43,10 @@ class PyMVF:
         self._error_queue: mp.Queue = mp.Queue()
 
         self._left_calculate_bin_rms = signal_processing.CalculateBinRMS(
-            self.sample_rate, bin_edges, 6
+            self.sample_rate, self.buffer_size, bin_edges, 9
         )
         self._right_calculate_bin_rms = signal_processing.CalculateBinRMS(
-            self.sample_rate, bin_edges, 6
+            self.sample_rate, self.buffer_size, bin_edges, 9
         )
 
         self._input_stream_process = Process(target=self._input_stream)
