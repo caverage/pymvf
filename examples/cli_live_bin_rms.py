@@ -34,7 +34,7 @@ def _killtree(including_parent: bool = True) -> None:
 
 
 def main() -> None:
-    buffer_discard_qty = 10
+    buffer_discard_qty = 1
     output_queue: mp.Queue = mp.Queue()
 
     # we drop a buffer later, so compensate for that in the buffer_discard_qty
@@ -59,24 +59,31 @@ def main() -> None:
 
         LOGGER.info(f"plotting buffer {buffer.id}")
 
-        # clear screen
-        print(chr(27) + "[2J")
-        # move cursor to (1,1)
-        print(chr(27) + "[1;1f")
-
         # FIXME: something is wrong here, the delta should never be negative but is
-        time_per_buffer = 512 / 44100
+        time_per_buffer = 1
         plotted_buffers = buffer.id - buffer_discard_qty
         audio_time = (plotted_buffers * time_per_buffer) - time_per_buffer
         delta = real_time - audio_time
-        print(
-            f"Real Time: {round(real_time,2)}\n"
-            f"Audio Time: {round(audio_time,2)}\n"
-            f"Delta: {round(delta,2)}"
-        )
 
-        for bin_, bin_amplitude in buffer.mono_bin_rms.items():
-            print(f"{bin_:}" + "-" * int(bin_amplitude * 100))
+        # this might be the worst thing I've ever done
+        # I'm so sorry
+        for i in range(len(buffer.mono_bin_rms[list(buffer.mono_bin_rms.keys())[0]])):
+            # clear screen
+            print(chr(27) + "[2J")
+            # move cursor to (1,1)
+            print(chr(27) + "[1;1f")
+            print(
+                f"Real Time: {round(real_time,2)}\n"
+                f"Audio Time: {round(audio_time,2)}\n"
+                f"Delta: {round(delta,2)}"
+            )
+            for bin_, energy_list in buffer.mono_bin_rms.items():
+                print(f"{bin_:}" + "-" * int(energy_list[i] * 100))
+
+            time.sleep(300 / 44100)
+
+        # for bin_, bin_amplitude in buffer.mono_bin_rms.items():
+        #     print(f"{bin_:}" + "-" * int(bin_amplitude * 100))
 
 
 if __name__ == "__main__":

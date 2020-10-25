@@ -1,6 +1,7 @@
 import logging
 import multiprocessing as mp
 import signal
+import sys
 import time
 from ctypes import c_longlong
 from dataclasses import dataclass
@@ -25,6 +26,11 @@ class PyaudioCallback:
         timestamp = time.perf_counter()
         self._buffer_queue.put((timestamp, self.buffer_id, in_data))
         self.buffer_id += 1
+
+        if not mp.parent_process().is_alive():
+            LOGGER.critical("pyaudio callback orphaned, killing")
+            sys.exit()
+
         return (None, pyaudio.paContinue)
 
 
@@ -43,20 +49,16 @@ class PyMVF:
         self._error_queue: mp.Queue = mp.Queue()
 
         self._left_calculate_bin_rms = signal_processing.CalculateBinRMS(
-            self.sample_rate, self.buffer_size, bin_edges, 9
+            self.sample_rate, self.buffer_size, bin_edges, 12
         )
         self._right_calculate_bin_rms = signal_processing.CalculateBinRMS(
-            self.sample_rate, self.buffer_size, bin_edges, 9
+            self.sample_rate, self.buffer_size, bin_edges, 12
         )
 
         self._input_stream_process = Process(target=self._input_stream)
         self._input_stream_process.start()
         self.stream = None
         LOGGER.info("Initialized Stream")
-
-        # self._filterbank = signal_processing.FilterBank(
-        #     self.sample_rate, self.buffer_size
-        # )
 
         while True:
             timestamp, buffer_id, stereo_buffer = self._buffer_queue.get()
@@ -85,7 +87,7 @@ class PyMVF:
             channels=2,
             rate=self.sample_rate,
             input=True,
-            frames_per_buffer=self.buffer_size,
+            frames_per_buffer=self.sample_rate,
             stream_callback=callback,
         )
         signal.pause()  # type:ignore

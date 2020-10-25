@@ -30,13 +30,9 @@ class Buffer:
     id: int
     timestamp: float
 
-    mono_filterbank: np.ndarray
-    left_filterbank: np.ndarray
-    right_filterbank: np.ndarray
-
-    mono_bin_rms: Dict[Tuple[int, int], float]
-    left_bin_rms: Dict[Tuple[int, int], float]
-    right_bin_rms: Dict[Tuple[int, int], float]
+    mono_bin_rms: Dict[Tuple[int, int], np.ndarray]
+    left_bin_rms: Dict[Tuple[int, int], np.ndarray]
+    right_bin_rms: Dict[Tuple[int, int], np.ndarray]
 
     mono_rms: float
     left_rms: float
@@ -91,11 +87,7 @@ def create_buffer(
     right_bin_rms = right_calculate_bin_rms(right_channel_array)
     mono_bin_rms = {}
     for bin_ in left_bin_rms.keys():
-        mono_bin_rms[bin_] = (left_bin_rms[bin_] + right_bin_rms[bin_]) / 2
-
-    mono_filterbank = None
-    left_filterbank = None
-    right_filterbank = None
+        mono_bin_rms[bin_] = np.add(left_bin_rms[bin_], right_bin_rms[bin_]) / 2
 
     mono_rms = signal_processing.get_rms(mono_array)
     left_rms = signal_processing.get_rms(left_channel_array)
@@ -109,9 +101,6 @@ def create_buffer(
         mono_bin_rms=mono_bin_rms,
         left_bin_rms=left_bin_rms,
         right_bin_rms=right_bin_rms,
-        mono_filterbank=mono_filterbank,
-        left_filterbank=left_filterbank,
-        right_filterbank=right_filterbank,
         mono_rms=mono_rms,
         left_rms=left_rms,
         right_rms=right_rms,

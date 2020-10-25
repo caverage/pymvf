@@ -2,6 +2,7 @@
 
 import logging
 import multiprocessing as mp
+import time
 from multiprocessing import shared_memory
 from typing import Dict, List, Tuple
 
@@ -57,18 +58,18 @@ def generate_bin_edges(low_freq: int, high_freq: int, count: int) -> List[int]:
     return bin_edges
 
 
-def get_rms(samples: np.array) -> float:
-    """ Get the RMS of an array of audio samples
+def get_rms(sample_block: np.array) -> float:
+    """ Get the RMS of an array of audio sample_block
 
     Args:
-        samples: the samples to get the RMS from
+        sample_block: the sample_block to get the RMS from
 
     Returns:
         float: the RMS
     """
-    return np.sqrt(np.mean(samples ** 2))  # type:ignore
+    return np.sqrt(np.mean(sample_block ** 2))  # type:ignore
 
-    # return np.sqrt(sum(samples * samples) / len(samples))  # type:ignore
+    # return np.sqrt(sum(sample_block * sample_block) / len(sample_block))  # type:ignore
 
 
 class _BandpassFilter:
@@ -77,13 +78,13 @@ class _BandpassFilter:
     Args:
         low_cut: Hz to attenuate all frequencies below
         high_cut: Hz to attenuate all frequencies above
-        sample_rate: sample rate that samples to the filter are input at
+        sample_rate: sample rate that sample_block to the filter are input at
         order: band pass filter order
     """
 
     def __init__(
         self,
-        shared_buffer_name: str,
+        shared_sample_block_name: str,
         sample_rate: int,
         buffer_size: int,
         low_cut: int,
@@ -94,7 +95,9 @@ class _BandpassFilter:
 
         self._sample_rate = sample_rate
         self._buffer_size = buffer_size
-        self.shared_buffer_name = shared_buffer_name
+        self._shared_sample_block_name = shared_sample_block_name
+
+        self._remainder = None
 
         self._input_queue: mp.Queue = mp.Queue()
         self._output_queue: mp.Queue = mp.Queue()
@@ -103,6 +106,7 @@ class _BandpassFilter:
         self._child_process_object = Process(
             target=self._child_process, name=self.name, args=(sos,)
         )
+
         self._child_process_object.start()
         LOGGER.info(f"started {self.name}")
 
@@ -128,32 +132,33 @@ class _BandpassFilter:
         return scipy.signal.butter(order, [low, high], btype="band", output="sos")
 
     def _child_process(self, sos: np.ndarray) -> None:
-        shared_buffer_memory = shared_memory.SharedMemory(name=self.shared_buffer_name)
-        buffer = np.ndarray(
-            (self._buffer_size,), dtype=np.float32, buffer=shared_buffer_memory.buf
+        shared_sample_block_memory = shared_memory.SharedMemory(
+            name=self._shared_sample_block_name
+        )
+        sample_block = np.ndarray(
+            (self._sample_rate * 2,),
+            dtype=np.float32,
+            buffer=shared_sample_block_memory.buf,
         )
 
         filter_state = scipy.signal.sosfilt_zi(sos)
-        previous_buffer = None
         while True:
             # block until called
             self._input_queue.get()
-            LOGGER.debug(f"{self.name} recieved block")
-            if previous_buffer is None:
-                previous_buffer = buffer
+            start_time = time.monotonic()
 
-            # buffering the input block achieves a steady state in the filter
-            buffered_buffer = np.append(previous_buffer, buffer)
-
-            filtered_buffered_buffer, filter_state = scipy.signal.sosfilt(
-                sos, buffered_buffer, zi=filter_state
+            filtered_sample_block, filter_state = scipy.signal.sosfilt(
+                sos, sample_block, zi=filter_state
             )
             # cut off the transient buffer, leaving the filtered, steady state pass band
-            filtered_buffer = filtered_buffered_buffer[len(previous_buffer) :]
+            filtered_sample_block = filtered_sample_block[
+                self._sample_rate - self._buffer_size :
+            ]
 
-            previous_buffer = buffer
-            self._output_queue.put(filtered_buffer)
-            LOGGER.debug(f"{self.name} processed block")
+            self._output_queue.put(filtered_sample_block)
+            LOGGER.debug(
+                f"filter_{self.name}: processed block in {round(time.monotonic()-start_time,5)}"
+            )
 
     @property
     def result(self) -> np.array:
@@ -162,13 +167,24 @@ class _BandpassFilter:
         Returns:
             np.array: filtered block
         """
-        return self._output_queue.get()
+        result = self._output_queue.get()
+
+        if self._remainder is not None:
+            result = np.concatenate((self._remainder, result))
+
+        remainder_len = len(result) % self._buffer_size
+
+        if remainder_len:
+            self._remainder = result[-remainder_len:]
+        else:
+            self._remainder = None
+
+        result = result[:-remainder_len]
+
+        return result
 
     def __call__(self) -> None:
-        """ filter a given block of audio samples
-
-        An effort is made to reduce (eliminate?) transients present at the begining
-            of the filter.
+        """ filter a given block of audio sample_block
 
         See: dsprelated.com/freebooks/filters/Transient_Response_Steady_State.html
         See: https://dsp.stackexchange.com/questions/70940/
@@ -177,29 +193,88 @@ class _BandpassFilter:
         self._input_queue.put(True)
 
 
+class _BufferSampleBlock:
+    def __init__(self, sample_rate: int, buffer_size: int):
+        self._sample_rate = sample_rate
+        self._buffer_size = buffer_size
+
+        self._previous_sample_block = None
+        self._remainder = None
+
+    def __call__(self, sample_block: np.ndarray) -> np.ndarray:
+        assert (
+            len(sample_block) == self._sample_rate
+        ), f"length {len(sample_block)} not equal to sample rate: {self._sample_rate}"
+
+        if self._previous_sample_block is None:
+            # prime _previous_sample_block with a duplicate to prevent initial transient
+            self._previous_sample_block = sample_block
+
+        if self._remainder is not None:
+            previous_remainder_len = len(self._remainder)
+            input_sample_block = np.concatenate((self._remainder, sample_block))
+            remainder_len = len(input_sample_block) % self._buffer_size
+        else:
+            previous_remainder_len = 0
+            input_sample_block = sample_block
+            remainder_len = len(input_sample_block) % self._buffer_size
+
+        if remainder_len:
+            self._remainder = input_sample_block[-remainder_len:]
+            input_sample_block = input_sample_block[:-remainder_len]
+        else:
+            # trying to slice with `0` returns the entire array :face_palm:
+            self._remainder = None
+
+        # add a transient prevention buffer to the input sample block
+        # the legth that this buffer needs to be is likely way smaller than this,
+        #    but the author is big dumb, so this is what we do
+        # buffering the input block achieves a steady state in the filter
+        if previous_remainder_len:
+            input_sample_block = np.concatenate(
+                (
+                    self._previous_sample_block[
+                        self._buffer_size
+                        - previous_remainder_len : -previous_remainder_len
+                    ],
+                    input_sample_block,
+                )
+            )
+        else:
+            input_sample_block = np.concatenate(
+                (self._previous_sample_block[self._buffer_size :], input_sample_block,)
+            )
+
+        self._previous_sample_block = sample_block
+        return input_sample_block
+
+
 class CalculateBinRMS:
     """ A callable singleton for getting the RMS of each bin.
 
+    The output of this is delayed by (at least) u1 second.
+
     Args:
-        sample_rate: sample rate that samples to the filter are input at
+        sample_rate: sample rate that sample_block to the filter are input at
         order: band pass filter order, should be odd, between 3 and 9
     """
 
     def __init__(
         self, sample_rate: int, buffer_size: int, bin_edges: List[int], order: int
     ):
-        self.shared_buffer_memory = shared_memory.SharedMemory(
-            create=True, size=buffer_size * 4
-        )
-        self.shared_buffer = np.ndarray(
-            (buffer_size,), dtype=np.float32, buffer=self.shared_buffer_memory.buf
+        self._buffer_size = buffer_size
+
+        # sample block with room for 2 blocks of 4 bytes per sample
+        self.shared_sample_block_memory = shared_memory.SharedMemory(
+            create=True, size=(sample_rate * 4 * 2)
         )
 
+        # create all bandpass filters
         self._bandpass_filters: Dict[Tuple[int, int], _BandpassFilter] = {}
         previous_edge = bin_edges[0]
         for edge in bin_edges[1:]:
             self._bandpass_filters[(previous_edge, edge)] = _BandpassFilter(
-                self.shared_buffer_memory.name,
+                self.shared_sample_block_memory.name,
                 sample_rate,
                 buffer_size,
                 previous_edge,
@@ -208,22 +283,35 @@ class CalculateBinRMS:
             )
             previous_edge = edge
 
-        LOGGER.debug("CalculateBinRMS created")
+        self._buffer_sample_block = _BufferSampleBlock(sample_rate, buffer_size)
+        # ironic
+        self._remainder = None
 
-    def __call__(self, samples: np.ndarray) -> Dict[Tuple[int, int], float]:
+    def __call__(self, sample_block: np.ndarray) -> Dict[Tuple[int, int], np.ndarray]:
         """ get list of rms values for each bin
 
+        An effort is made to reduce (eliminate?) transients present at the begining
+            of the filter by prepending the previous input sample block to the one we
+            care about.
+
         Args:
-            samples: input to be processed
+            sample_block: input to be processed
 
         Returns:
-            List[float]: rms values for each bin
+            Dict[Tuple[int, int], float]: rms values for each bin
         """
-        self.shared_buffer[:] = samples[:]
-        LOGGER.info(samples.dtype)
-        LOGGER.info(self.shared_buffer.dtype)
 
-        # tell children to get to work
+        buffered_sample_block = self._buffer_sample_block(sample_block)
+
+        self.shared_sample_block = np.ndarray(
+            (len(buffered_sample_block),),
+            dtype=np.float32,
+            buffer=self.shared_sample_block_memory.buf,
+        )
+
+        self.shared_sample_block[:] = buffered_sample_block[:]
+
+        # # tell children to get to work
         for bandpass_filter in self._bandpass_filters.values():
             bandpass_filter()
         LOGGER.debug("all filters processing")
@@ -231,31 +319,13 @@ class CalculateBinRMS:
         # collect the results into a dict
         amplitudes = {}
         for bin_, bandpass_filter in self._bandpass_filters.items():
-            amplitudes[bin_] = float(get_rms(bandpass_filter.result))
+            energy_list = []
+            filtered_sample_block = bandpass_filter.result
+            for buffer in filtered_sample_block.reshape(
+                int(len(filtered_sample_block) / self._buffer_size), self._buffer_size
+            ):
+                energy_list.append(float(get_rms(buffer)))
+            amplitudes[bin_] = np.array(energy_list)
         LOGGER.debug("all results recieved")
 
         return amplitudes
-
-
-# class FilterBank:
-#     def __init__(self, sample_rate: int, buffer_size: int) -> None:
-#         self._fft = aubio.fft(buffer_size)
-#         self._filterbank = aubio.filterbank(len(BINS) - 2, buffer_size)
-#         self._filterbank.set_power(3)
-#         self._filterbank.set_triangle_bands(aubio.fvec(BINS), sample_rate)
-#
-#         coefficients = self._filterbank.get_coeffs()
-#
-#         # increase the relative power of the higher bins
-#         for i, coefficient in enumerate(coefficients):
-#             # first 2 coefficients stay the same
-#             coefficients[i] = coefficient * (i ** 2.8)
-#
-#         self._filterbank.set_coeffs(coefficients)
-#
-#     def __call__(self, input_array: np.ndarray) -> np.ndarray:
-#         fft = self._fft(input_array)
-#         # we don't need much precision at all
-#         energy = self._filterbank(fft).astype(np.uint32)
-#
-#         return energy
