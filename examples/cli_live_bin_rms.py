@@ -41,7 +41,7 @@ def main() -> None:
     pymvf_process = pymvf.Process(
         target=pymvf.PyMVF,
         args=(
-            pymvf.signal_processing.generate_bin_edges(20, 20000, int(sys.argv[1])),
+            pymvf.dsp.generate_bin_edges(20, 20000, int(sys.argv[1])),
             output_queue,
             buffer_discard_qty - 1,
         ),

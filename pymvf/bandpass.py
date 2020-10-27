@@ -1,4 +1,4 @@
-""" Module for signal processing helpers and utilities"""
+""" bandpass filter related objects"""
 
 import logging
 import multiprocessing as mp
@@ -9,67 +9,11 @@ from typing import Dict, List, Tuple
 import numpy as np  # type:ignore
 import scipy.signal  # type:ignore
 
+from pymvf import dsp
+
 from .child_process import Process
 
 LOGGER = logging.getLogger(__name__)
-
-
-def erb_from_freq(freq: int) -> float:
-    """ Get equivalent rectangular bandwidth from the given frequency.
-
-    See: https://en.wikipedia.org/wiki/Equivalent_rectangular_bandwidth
-
-    Args:
-        freq: input frequency
-
-    Returns:
-        int: cam
-    """
-
-    return float(9.265 * np.log(1 + np.divide(freq, 24.7 * 9.16)))
-
-
-def generate_bin_edges(low_freq: int, high_freq: int, count: int) -> List[int]:
-    """ Bin sizes designed around Equivalent Rectangular Bandwidth
-
-    NOTE: this becomes less accurate as the bin values increase,
-        but should be good enough (TM)
-
-    Args:
-        low_freq: where to start the bins (> 0)
-        high_freq: where to end the bins (<= 20,000)
-        count: number of bin edges to generate
-
-    Returns:
-        List[int]: bin seperators in Hz
-    """
-
-    bin_edges = []
-    cams = np.linspace(erb_from_freq(low_freq), erb_from_freq(high_freq), count)
-    for i, cam in enumerate(cams):
-        if not i:
-            # this is probably not nessesary, but better safe than sorry?
-            bin_edges.append(low_freq)
-        elif i == len(cams) - 1:
-            bin_edges.append(high_freq)
-        else:
-            bin_edges.append(round(10 ** (cam / 21.4) / 0.00437 - 1 / 0.00437))
-
-    return bin_edges
-
-
-def get_rms(sample_block: np.array) -> float:
-    """ Get the RMS of an array of audio sample_block
-
-    Args:
-        sample_block: the sample_block to get the RMS from
-
-    Returns:
-        float: the RMS
-    """
-    return np.sqrt(np.mean(sample_block ** 2))  # type:ignore
-
-    # return np.sqrt(sum(sample_block * sample_block) / len(sample_block))  # type:ignore
 
 
 class _BandpassFilter:
@@ -108,7 +52,6 @@ class _BandpassFilter:
         )
 
         self._child_process_object.start()
-        LOGGER.info(f"started {self.name}")
 
     @staticmethod
     def _design_filter(
@@ -150,22 +93,22 @@ class _BandpassFilter:
             filtered_sample_block, filter_state = scipy.signal.sosfilt(
                 sos, sample_block, zi=filter_state
             )
-            # cut off the transient buffer, leaving the filtered, steady state pass band
-            filtered_sample_block = filtered_sample_block[
-                self._sample_rate - self._buffer_size :
-            ]
 
+            # cut off the transient buffer, leaving the filtered, steady state pass band
+            filtered_sample_block = filtered_sample_block[self._sample_rate :]
+
+            assert len(filtered_sample_block) == self._sample_rate
             self._output_queue.put(filtered_sample_block)
-            LOGGER.debug(
-                f"filter_{self.name}: processed block in {round(time.monotonic()-start_time,5)}"
-            )
 
     @property
     def result(self) -> np.array:
         """ Get result of most recent call.
 
+        Will returns a number of samples evenly divisible by the buffer_size, and hold
+            the remainder for the next call.
+
         Returns:
-            np.array: filtered block
+            np.array: filtered block evenly divisible by buffer_size
         """
         result = self._output_queue.get()
 
@@ -176,10 +119,9 @@ class _BandpassFilter:
 
         if remainder_len:
             self._remainder = result[-remainder_len:]
+            result = result[:-remainder_len]
         else:
             self._remainder = None
-
-        result = result[:-remainder_len]
 
         return result
 
@@ -194,14 +136,31 @@ class _BandpassFilter:
 
 
 class _BufferSampleBlock:
+    """ Buffer a sample block and return a sample block that is divisible evenly
+
+    How this works is not fully understood, but it is probobaly not perfect
+
+    Args:
+        sample_rate: the sample rate
+        buffer_size: the buffer size
+    """
+
     def __init__(self, sample_rate: int, buffer_size: int):
         self._sample_rate = sample_rate
         self._buffer_size = buffer_size
 
         self._previous_sample_block = None
-        self._remainder = None
+        # self._remainder = None
 
     def __call__(self, sample_block: np.ndarray) -> np.ndarray:
+        """ See _BufferSampleBlock.__doc__
+
+        Args:
+            sample_block: the sample block to be buffered
+
+        Returns:
+            np.ndarray: a buffered sample block that is evenly divisible by buffer_size
+        """
         assert (
             len(sample_block) == self._sample_rate
         ), f"length {len(sample_block)} not equal to sample rate: {self._sample_rate}"
@@ -210,59 +169,38 @@ class _BufferSampleBlock:
             # prime _previous_sample_block with a duplicate to prevent initial transient
             self._previous_sample_block = sample_block
 
-        if self._remainder is not None:
-            previous_remainder_len = len(self._remainder)
-            input_sample_block = np.concatenate((self._remainder, sample_block))
-            remainder_len = len(input_sample_block) % self._buffer_size
-        else:
-            previous_remainder_len = 0
-            input_sample_block = sample_block
-            remainder_len = len(input_sample_block) % self._buffer_size
-
-        if remainder_len:
-            self._remainder = input_sample_block[-remainder_len:]
-            input_sample_block = input_sample_block[:-remainder_len]
-        else:
-            # trying to slice with `0` returns the entire array :face_palm:
-            self._remainder = None
-
         # add a transient prevention buffer to the input sample block
         # the legth that this buffer needs to be is likely way smaller than this,
         #    but the author is big dumb, so this is what we do
         # buffering the input block achieves a steady state in the filter
-        if previous_remainder_len:
-            input_sample_block = np.concatenate(
-                (
-                    self._previous_sample_block[
-                        self._buffer_size
-                        - previous_remainder_len : -previous_remainder_len
-                    ],
-                    input_sample_block,
-                )
-            )
-        else:
-            input_sample_block = np.concatenate(
-                (self._previous_sample_block[self._buffer_size :], input_sample_block,)
-            )
+        buffered_sample_block = np.concatenate(
+            (self._previous_sample_block, sample_block,)
+        )
 
         self._previous_sample_block = sample_block
-        return input_sample_block
+
+        assert len(buffered_sample_block) == self._sample_rate * 2
+        return buffered_sample_block
 
 
 class CalculateBinRMS:
-    """ A callable singleton for getting the RMS of each bin.
+    """ Apply a bandpass filter to a number of frequency bins.
 
-    The output of this is delayed by (at least) u1 second.
+    The output of this is delayed by (at least) 1 second.
 
     Args:
         sample_rate: sample rate that sample_block to the filter are input at
-        order: band pass filter order, should be odd, between 3 and 9
+        buffer_size: the buffer size
+        bin_edges: the edges used to create the filters. For example, `[1,2,3]` would
+            create a 2 bins: (1,2) and (2,3).
+        order: bandpass filter order
     """
 
     def __init__(
         self, sample_rate: int, buffer_size: int, bin_edges: List[int], order: int
     ):
         self._buffer_size = buffer_size
+        self._sample_rate = sample_rate
 
         # sample block with room for 2 blocks of 4 bytes per sample
         self.shared_sample_block_memory = shared_memory.SharedMemory(
@@ -285,9 +223,9 @@ class CalculateBinRMS:
 
         self._buffer_sample_block = _BufferSampleBlock(sample_rate, buffer_size)
         # ironic
-        self._remainder = None
 
-    def __call__(self, sample_block: np.ndarray) -> Dict[Tuple[int, int], np.ndarray]:
+    # FIXME: make some types for all these
+    def __call__(self, sample_block: np.ndarray) -> List[Dict[Tuple[int, int], float]]:
         """ get list of rms values for each bin
 
         An effort is made to reduce (eliminate?) transients present at the begining
@@ -295,37 +233,60 @@ class CalculateBinRMS:
             care about.
 
         Args:
-            sample_block: input to be processed
+            sample_block: Input to be processed. MUST be the same len as `sample_rate`
 
         Returns:
-            Dict[Tuple[int, int], float]: rms values for each bin
+            List[Dict[Tuple[int, int], float]]: list of bin-energy mappings for
+                each variable.
+                Example: `[{(1,2):0.0, (2,3):1.9}, {(1,2):2.3, (2,3):4.6}]` is a list
+                of 2 buffers with 2 bins.
         """
 
+        assert len(sample_block) == self._sample_rate
         buffered_sample_block = self._buffer_sample_block(sample_block)
 
-        self.shared_sample_block = np.ndarray(
+        shared_sample_block = np.ndarray(
             (len(buffered_sample_block),),
             dtype=np.float32,
             buffer=self.shared_sample_block_memory.buf,
         )
 
-        self.shared_sample_block[:] = buffered_sample_block[:]
+        shared_sample_block[:] = buffered_sample_block[:]
 
-        # # tell children to get to work
+        # tell children to get to work
         for bandpass_filter in self._bandpass_filters.values():
             bandpass_filter()
         LOGGER.debug("all filters processing")
 
-        # collect the results into a dict
-        amplitudes = {}
+        # collect the results into a list
+        bin_energies_list: List[Tuple[Tuple[int, int], np.ndarray]] = []
         for bin_, bandpass_filter in self._bandpass_filters.items():
             energy_list = []
             filtered_sample_block = bandpass_filter.result
+
+            # split filtered samples into buffers
             for buffer in filtered_sample_block.reshape(
                 int(len(filtered_sample_block) / self._buffer_size), self._buffer_size
             ):
-                energy_list.append(float(get_rms(buffer)))
-            amplitudes[bin_] = np.array(energy_list)
+                energy_list.append(float(dsp.get_rms(buffer)))
+            bin_energies_list.append((bin_, np.array(energy_list)))
         LOGGER.debug("all results recieved")
 
-        return amplitudes
+        # filterbanks return a random order, sort them into a 2d array
+        bin_energies_list.sort()
+        bin_energies_array = np.zeros(
+            (len(bin_energies_list), len(bin_energies_list[0][1])),
+            dtype=bin_energies_list[0][1].dtype,
+        )
+        for i, (_, energies) in enumerate(bin_energies_list):
+            bin_energies_array[i] = energies[:]
+
+        # create a bin-energy mapping for each buffer
+        bin_energy_mapping_list = []
+        for energy_array in bin_energies_array.swapaxes(0, 1):
+            bin_energy_mapping = {}
+            for bin_, energy in zip(self._bandpass_filters, energy_array):
+                bin_energy_mapping[bin_] = float(energy)
+            bin_energy_mapping_list.append(bin_energy_mapping)
+
+        return bin_energy_mapping_list

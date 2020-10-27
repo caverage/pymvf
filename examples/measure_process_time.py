@@ -13,7 +13,7 @@ import psutil  # type:ignore
 
 import pymvf
 
-logging.basicConfig(filename="cli_live_bin_rms.log", level=20)
+logging.basicConfig(filename="pymvf.log", level=20)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -37,18 +37,10 @@ def _killtree(including_parent: bool = True) -> None:
 
 def main() -> None:
     buffer_discard_qty = 10
-    output_queue: mp.Queue = mp.Queue()
-
-    # we drop a buffer later, so compensate for that in the buffer_discard_qty
-    pymvf_process = pymvf.Process(
-        target=pymvf.PyMVF,
-        args=(
-            pymvf.signal_processing.generate_bin_edges(20, 20000, int(sys.argv[1])),
-            output_queue,
-            buffer_discard_qty - 1,
-        ),
+    buffer_processor = pymvf.PyMVF(
+        bin_edges=pymvf.dsp.generate_bin_edges(20, 20000, int(sys.argv[1])),
+        buffer_discard_qty=10,
     )
-    pymvf_process.start()
 
     rolling_delays = [
         deque([], maxlen=5),
@@ -58,12 +50,12 @@ def main() -> None:
     time_per_buffer = 512 / 44100
     start_time = None
     while True:
+        buffer = buffer_processor()
+
         if start_time is None:
-            _ = output_queue.get()
             start_time = time.monotonic()
             previous_time = start_time
 
-        buffer = output_queue.get()
         current_time = time.monotonic()
         delay = current_time - previous_time
         previous_time = current_time
@@ -71,7 +63,7 @@ def main() -> None:
         for rolling_delay in rolling_delays:
             rolling_delay.append(delay)
 
-        plotted_buffers = buffer.id - buffer_discard_qty
+        plotted_buffers = buffer.id
         audio_time = (plotted_buffers * time_per_buffer) - time_per_buffer
         delta = (current_time - start_time) - audio_time
 
