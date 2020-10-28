@@ -208,9 +208,9 @@ class PyMVF:
                     left_rms=stub.left_rms,
                     right_rms=stub.right_rms,
                     beat=stub.beat,
-                    mono_bin_energies=mono_bin_energy_mapping,
-                    left_bin_energies=left_bin_energy_mapping,
-                    right_bin_energies=right_bin_energy_mapping,
+                    mono_bin_energy_mapping=mono_bin_energy_mapping,
+                    left_bin_energy_mapping=left_bin_energy_mapping,
+                    right_bin_energy_mapping=right_bin_energy_mapping,
                 )
                 self.output_queue.put(finished_buffer)
                 processed_buffer_counter += 1

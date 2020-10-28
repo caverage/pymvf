@@ -8,10 +8,9 @@ import sys
 import time
 
 import psutil  # type:ignore
-
 import pymvf
 
-logging.basicConfig(filename="cli_live_bin_rms.log", level=10)
+logging.basicConfig(filename="pymvf.log", level=20)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -24,7 +23,7 @@ def _killtree(including_parent: bool = True) -> None:
     Args:
         including_parent: if parent should also be killed when executed
     """
-
+    LOGGER.critical("Stopping")
     parent = psutil.Process(os.getpid())
     for child in parent.children(recursive=True):
         child.kill()
@@ -32,57 +31,47 @@ def _killtree(including_parent: bool = True) -> None:
     if including_parent:
         parent.kill()
 
+    LOGGER.critical("Stopped")
+
 
 def main() -> None:
-    buffer_discard_qty = 1
-    output_queue: mp.Queue = mp.Queue()
-
-    # we drop a buffer later, so compensate for that in the buffer_discard_qty
-    pymvf_process = pymvf.Process(
-        target=pymvf.PyMVF,
-        args=(
-            pymvf.dsp.generate_bin_edges(20, 20000, int(sys.argv[1])),
-            output_queue,
-            buffer_discard_qty - 1,
-        ),
+    buffer_discard_qty = 10
+    buffer_processor = pymvf.PyMVF(
+        bin_edges=pymvf.dsp.generate_bin_edges(20, 20000, int(sys.argv[1])),
+        buffer_discard_qty=10,
     )
-    pymvf_process.start()
 
     start_time = None
     while True:
         if start_time is None:
-            buffer = output_queue.get()
+            buffer = buffer_processor()
             start_time = time.monotonic()
 
         real_time = time.monotonic() - start_time
-        buffer = output_queue.get()
+        buffer = buffer_processor()
 
         LOGGER.info(f"plotting buffer {buffer.id}")
 
         # FIXME: something is wrong here, the delta should never be negative but is
-        time_per_buffer = 1
+        time_per_buffer = 512 / 44100
         plotted_buffers = buffer.id - buffer_discard_qty
         audio_time = (plotted_buffers * time_per_buffer) - time_per_buffer
         delta = real_time - audio_time
 
-        # this might be the worst thing I've ever done
-        # I'm so sorry
-        for i in range(len(buffer.mono_bin_rms[list(buffer.mono_bin_rms.keys())[0]])):
-            # clear screen
-            print(chr(27) + "[2J")
-            # move cursor to (1,1)
-            print(chr(27) + "[1;1f")
-            print(
-                f"Real Time: {round(real_time,2)}\n"
-                f"Audio Time: {round(audio_time,2)}\n"
-                f"Delta: {round(delta,2)}"
-            )
-            for bin_, energy_list in buffer.mono_bin_rms.items():
-                print(f"{bin_:}" + "-" * int(energy_list[i] * 100))
+        # clear screen
+        print(chr(27) + "[2J")
+        # move cursor to (1,1)
+        print(chr(27) + "[1;1f")
+        print(
+            f"Real Time: {round(real_time,2)}\n"
+            f"Audio Time: {round(audio_time,2)}\n"
+            f"Delta: {round(delta,2)}"
+        )
+        for bin_, energy in buffer.mono_bin_energy_mapping.items():
+            print(f"{bin_}" + "-" * int(energy * 200))
+        time.sleep(500 / 44100)
 
-            time.sleep(300 / 44100)
-
-        # for bin_, bin_amplitude in buffer.mono_bin_rms.items():
+        # for bin_, bin_amplitude in buffer.mono_bin_energy_mapping.items():
         #     print(f"{bin_:}" + "-" * int(bin_amplitude * 100))
 
 

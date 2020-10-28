@@ -10,7 +10,6 @@ from collections import deque
 
 import numpy as np  # type:ignore
 import psutil  # type:ignore
-
 import pymvf
 
 logging.basicConfig(filename="pymvf.log", level=20)
@@ -43,9 +42,9 @@ def main() -> None:
     )
 
     rolling_delays = [
-        deque([], maxlen=5),
-        deque([], maxlen=50),
-        deque([], maxlen=500),
+        deque([], maxlen=5000),
+        deque([], maxlen=50000),
+        deque([], maxlen=500000),
     ]
     time_per_buffer = 512 / 44100
     start_time = None
@@ -77,12 +76,10 @@ def main() -> None:
             f"Real Time: {round(current_time-start_time,3)}\n"
             f"Audio Time: {round(audio_time,2)}\n"
             f"Delta: {round(delta,2)}\n"
-            f"Break Even:{round(time_per_buffer,5)}\n"
-            f"Delay 1: {round(delay,5)}\n"
-            f"Delay 1: {round(delay,5)}\n"
-            f"Delay 5: {round(np.sum(rolling_delays[0])/len(rolling_delays[0]),5)}\n"
-            f"Delay 50: {round(np.sum(rolling_delays[1])/len(rolling_delays[1]),5)}\n"
-            f"Delay 500: {round(np.sum(rolling_delays[2])/len(rolling_delays[2]),5)}\n"
+            f"Break Even:{round(time_per_buffer,7)}\n"
+            f"Delay 5000: {round(np.sum(rolling_delays[0])/len(rolling_delays[0]),7)}\n"
+            f"Delay 50000: {round(np.sum(rolling_delays[1])/len(rolling_delays[1]),7)}\n"
+            f"Delay 500000: {round(np.sum(rolling_delays[2])/len(rolling_delays[2]),7)}\n"
         )
 
 
