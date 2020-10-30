@@ -32,17 +32,26 @@ class MaxEnergyTracker:
             self.all_time_max_energy = energy
             return self.max_energy
 
+        assert isinstance(self.all_time_max_energy, float)
         if energy > self.max_energy:
             self.max_energy = energy
+            # LOGGER.info(f"max increased to {self.max_energy}")
+            if self.max_energy > self.all_time_max_energy:
+                self.all_time_max_energy = self.max_energy
             return self.max_energy
 
-        assert isinstance(self.all_time_max_energy, float)
-        # decrease the max energy by 1/30th of the all time max energy per second
-        if self.max_energy / self.all_time_max_energy < 0.001:
+        # don't derease lower than 1/3 the total maximum
+        if self.max_energy / self.all_time_max_energy < 0.333:
             return self.max_energy
-        self.max_energy = self.max_energy - (
-            self.all_time_max_energy / (self._buffers_per_second * 30)
+
+        decrease_ammount = self.all_time_max_energy / (self._buffers_per_second * 10)
+        # decrease the max energy by 1/3th of the all time max energy per second
+        LOGGER.info(
+            f"max decreased by {round(decrease_ammount/self.max_energy, 2)} percent"
         )
+
+        self.max_energy = self.max_energy - decrease_ammount
+
         return self.max_energy
 
 
