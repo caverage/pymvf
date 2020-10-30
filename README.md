@@ -45,6 +45,6 @@ For more info on using pytest see: https://docs.pytest.org/en/stable/contents.ht
 
 ### Useful Commands
 #### Kill Orphaned Processes When an Example Fails
-This shouldn't be nessesary, but I am a bad programmer.
+This shouldn't be necessary, but I am a bad programmer.
 
 `for pid in $(sudo ps -eo pid,cmd | grep "python examples" | awk '{print $1;}'); do kill -9 $pid; done`

@@ -58,9 +58,9 @@ class Buffer(BufferStub):
         right_bin_energy_mapping: bin rms of right channel
     """
 
-    mono_bin_energy_mapping: Dict[Tuple[int, int], np.ndarray]
-    left_bin_energy_mapping: Dict[Tuple[int, int], np.ndarray]
-    right_bin_energy_mapping: Dict[Tuple[int, int], np.ndarray]
+    mono_bin_intensity_mapping: Dict[Tuple[int, int], np.ndarray]
+    left_bin_intensity_mapping: Dict[Tuple[int, int], np.ndarray]
+    right_bin_intensity_mapping: Dict[Tuple[int, int], np.ndarray]
 
 
 def create_buffer_stub(

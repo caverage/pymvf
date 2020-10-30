@@ -138,20 +138,20 @@ class PyMVF:
             if len(channel_arrays["left"]) == self.sample_rate:
                 LOGGER.debug("Length of channel arrays equal to `sample_rate`")
 
-                left_bin_energies_mapping_list = left_calculate_bin_rms(
+                left_bin_intensities_mapping_list = left_calculate_bin_rms(
                     channel_arrays["left"]
                 )
-                right_bin_energies_mapping_list = right_calculate_bin_rms(
+                right_bin_intensities_mapping_list = right_calculate_bin_rms(
                     channel_arrays["right"]
                 )
                 del channel_arrays["left"]
                 del channel_arrays["right"]
             else:
                 # just send `sample_rate`s (1 second) worth of samples
-                left_bin_energies_mapping_list = left_calculate_bin_rms(
+                left_bin_intensities_mapping_list = left_calculate_bin_rms(
                     channel_arrays["left"][: self.sample_rate]
                 )
-                right_bin_energies_mapping_list = right_calculate_bin_rms(
+                right_bin_intensities_mapping_list = right_calculate_bin_rms(
                     channel_arrays["right"][: self.sample_rate]
                 )
                 # remove all samples besides the remainder
@@ -159,47 +159,50 @@ class PyMVF:
                 channel_arrays["right"] = channel_arrays["right"][self.sample_rate :]
 
             # averaging the energies of each channel gives us the mono channel's energy
-            mono_bin_energies_mapping_list = []
-            for left_bin_energy_mapping, right_bin_energy_mapping in zip(
-                left_bin_energies_mapping_list, right_bin_energies_mapping_list
+            mono_bin_intensities_mapping_list = []
+            for left_bin_intensity_mapping, right_bin_intensity_mapping in zip(
+                left_bin_intensities_mapping_list, right_bin_intensities_mapping_list
             ):
-                mono_bin_energies_mapping = {}
+                mono_bin_intensities_mapping = {}
                 for (bin_, left_energy), right_energy in zip(
-                    left_bin_energy_mapping.items(), right_bin_energy_mapping.values()
+                    left_bin_intensity_mapping.items(),
+                    right_bin_intensity_mapping.values(),
                 ):
-                    mono_bin_energies_mapping[bin_] = (left_energy + right_energy) / 2
-                mono_bin_energies_mapping_list.append(mono_bin_energies_mapping)
+                    mono_bin_intensities_mapping[bin_] = (
+                        left_energy + right_energy
+                    ) / 2
+                mono_bin_intensities_mapping_list.append(mono_bin_intensities_mapping)
 
             assert (
-                len(mono_bin_energies_mapping_list)
-                == len(left_bin_energies_mapping_list)
-                == len(right_bin_energies_mapping_list)
+                len(mono_bin_intensities_mapping_list)
+                == len(left_bin_intensities_mapping_list)
+                == len(right_bin_intensities_mapping_list)
             )
 
             assert (
-                len(mono_bin_energies_mapping_list) + 1
+                len(mono_bin_intensities_mapping_list) + 1
                 >= buffer_stub_counter - processed_buffer_counter
             )
 
             # we do not nessesarilly get as many energies as we filtered
             # this is compensated for in the filterbank process by sometimes sending
             #    more than we sent, but we have to compensate for that here as well
-            stubs_to_promote = buffer_stubs[: len(left_bin_energies_mapping_list)]
-            buffer_stubs = buffer_stubs[len(left_bin_energies_mapping_list) :]
+            stubs_to_promote = buffer_stubs[: len(left_bin_intensities_mapping_list)]
+            buffer_stubs = buffer_stubs[len(left_bin_intensities_mapping_list) :]
 
-            assert len(stubs_to_promote) == len(mono_bin_energies_mapping_list)
+            assert len(stubs_to_promote) == len(mono_bin_intensities_mapping_list)
 
             # weave together all the buffer stubs and bin energy mappings
             for (
                 stub,
-                mono_bin_energy_mapping,
-                left_bin_energy_mapping,
-                right_bin_energy_mapping,
+                mono_bin_intensity_mapping,
+                left_bin_intensity_mapping,
+                right_bin_intensity_mapping,
             ) in zip(
                 stubs_to_promote,
-                mono_bin_energies_mapping_list,
-                left_bin_energies_mapping_list,
-                right_bin_energies_mapping_list,
+                mono_bin_intensities_mapping_list,
+                left_bin_intensities_mapping_list,
+                right_bin_intensities_mapping_list,
             ):
                 finished_buffer = buffer.Buffer(
                     id=stub.id,
@@ -208,9 +211,9 @@ class PyMVF:
                     left_rms=stub.left_rms,
                     right_rms=stub.right_rms,
                     beat=stub.beat,
-                    mono_bin_energy_mapping=mono_bin_energy_mapping,
-                    left_bin_energy_mapping=left_bin_energy_mapping,
-                    right_bin_energy_mapping=right_bin_energy_mapping,
+                    mono_bin_intensity_mapping=mono_bin_intensity_mapping,
+                    left_bin_intensity_mapping=left_bin_intensity_mapping,
+                    right_bin_intensity_mapping=right_bin_intensity_mapping,
                 )
                 self.output_queue.put(finished_buffer)
                 processed_buffer_counter += 1

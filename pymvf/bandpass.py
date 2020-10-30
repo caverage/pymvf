@@ -4,7 +4,7 @@ import logging
 import multiprocessing as mp
 import time
 from multiprocessing import shared_memory
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np  # type:ignore
 import scipy.signal  # type:ignore
@@ -14,6 +14,60 @@ from pymvf import dsp
 from .child_process import Process
 
 LOGGER = logging.getLogger(__name__)
+
+
+class MaxEnergyTracker:
+    def __init__(self, buffers_per_second: float):
+        self._buffers_per_second = buffers_per_second
+        self.max_energy: Optional[float] = None
+        self.all_time_max_energy: Optional[float] = None
+
+    def __call__(self, energy: float) -> Optional[float]:
+        if not energy:
+            # don't try to divide by 0
+            return self.max_energy
+
+        if self.max_energy is None:
+            self.max_energy = energy
+            self.all_time_max_energy = energy
+            return self.max_energy
+
+        if energy > self.max_energy:
+            self.max_energy = energy
+            return self.max_energy
+
+        assert isinstance(self.all_time_max_energy, float)
+        # decrease the max energy by 1/30th of the all time max energy per second
+        if self.max_energy / self.all_time_max_energy < 0.001:
+            return self.max_energy
+        self.max_energy = self.max_energy - (
+            self.all_time_max_energy / (self._buffers_per_second * 30)
+        )
+        return self.max_energy
+
+
+class BinsIntensity:
+    def __init__(self, bins: List[Tuple[int, int]]):
+        self.max_energy_trackers = [MaxEnergyTracker(bin_) for bin_ in bins]
+
+    def __call__(self, bin_intensity_array: np.array) -> np.array:
+        """ get array of bin intensities adjusted by their max energy size per bin
+
+        Args:
+            bin_intensity_array: sorted array of bin intensities
+
+        Returns:
+            np.array: array of adjusted intensity between 0 and 1
+
+        """
+        output_bin_adjusted_intensity: List[float] = []
+
+        for max_energy_tracker, energy in zip(
+            self.max_energy_trackers, bin_intensity_array
+        ):
+            output_bin_adjusted_intensity.append(energy / max_energy_tracker(energy))
+
+        return np.array(output_bin_adjusted_intensity)
 
 
 class _BandpassFilter:
@@ -41,16 +95,20 @@ class _BandpassFilter:
         self._buffer_size = buffer_size
         self._shared_sample_block_name = shared_sample_block_name
 
+        self.max_energy_tracker = MaxEnergyTracker(
+            self._sample_rate / self._buffer_size
+        )
+
         self._remainder = None
 
         self._input_queue: mp.Queue = mp.Queue()
         self._output_queue: mp.Queue = mp.Queue()
 
         sos = self._design_filter(low_cut, high_cut, sample_rate, order)
+
         self._child_process_object = Process(
             target=self._child_process, name=self.name, args=(sos,)
         )
-
         self._child_process_object.start()
 
     @staticmethod
@@ -75,6 +133,7 @@ class _BandpassFilter:
         return scipy.signal.butter(order, [low, high], btype="band", output="sos")
 
     def _child_process(self, sos: np.ndarray) -> None:
+
         shared_sample_block_memory = shared_memory.SharedMemory(
             name=self._shared_sample_block_name
         )
@@ -98,6 +157,7 @@ class _BandpassFilter:
             filtered_sample_block = filtered_sample_block[self._sample_rate :]
 
             assert len(filtered_sample_block) == self._sample_rate
+
             self._output_queue.put(filtered_sample_block)
 
     @property
@@ -236,7 +296,7 @@ class CalculateBinRMS:
             sample_block: Input to be processed. MUST be the same len as `sample_rate`
 
         Returns:
-            List[Dict[Tuple[int, int], float]]: list of bin-energy mappings for
+            List[Dict[Tuple[int, int], float]]: list of bin-intensity mappings for
                 each variable.
                 Example: `[{(1,2):0.0, (2,3):1.9}, {(1,2):2.3, (2,3):4.6}]` is a list
                 of 2 buffers with 2 bins.
@@ -259,34 +319,40 @@ class CalculateBinRMS:
         LOGGER.debug("all filters processing")
 
         # collect the results into a list
-        bin_energies_list: List[Tuple[Tuple[int, int], np.ndarray]] = []
+        bin_intensities_list: List[Tuple[Tuple[int, int], np.ndarray]] = []
         for bin_, bandpass_filter in self._bandpass_filters.items():
-            energy_list = []
+            intensity_list = []
             filtered_sample_block = bandpass_filter.result
 
             # split filtered samples into buffers
             for buffer in filtered_sample_block.reshape(
                 int(len(filtered_sample_block) / self._buffer_size), self._buffer_size
             ):
-                energy_list.append(float(dsp.get_rms(buffer)))
-            bin_energies_list.append((bin_, np.array(energy_list)))
+                energy = float(dsp.get_rms(buffer))
+                max_energy = bandpass_filter.max_energy_tracker(energy)
+                if not max_energy:
+                    intensity = 0
+                else:
+                    intensity = energy / max_energy
+                intensity_list.append(intensity)
+            bin_intensities_list.append((bin_, np.array(intensity_list)))
         LOGGER.debug("all results recieved")
 
         # filterbanks return a random order, sort them into a 2d array
-        bin_energies_list.sort()
-        bin_energies_array = np.zeros(
-            (len(bin_energies_list), len(bin_energies_list[0][1])),
-            dtype=bin_energies_list[0][1].dtype,
+        bin_intensities_list.sort()
+        bin_intensities_array = np.zeros(
+            (len(bin_intensities_list), len(bin_intensities_list[0][1])),
+            dtype=bin_intensities_list[0][1].dtype,
         )
-        for i, (_, energies) in enumerate(bin_energies_list):
-            bin_energies_array[i] = energies[:]
+        for i, (_, intensities) in enumerate(bin_intensities_list):
+            bin_intensities_array[i] = intensities[:]
 
-        # create a bin-energy mapping for each buffer
-        bin_energy_mapping_list = []
-        for energy_array in bin_energies_array.swapaxes(0, 1):
-            bin_energy_mapping = {}
-            for bin_, energy in zip(self._bandpass_filters, energy_array):
-                bin_energy_mapping[bin_] = float(energy)
-            bin_energy_mapping_list.append(bin_energy_mapping)
+        # create a bin-intensity mapping for each buffer
+        bin_intensity_mapping_list = []
+        for intensity_array in bin_intensities_array.swapaxes(0, 1):
+            bin_intensity_mapping = {}
+            for bin_, intensity in zip(self._bandpass_filters, intensity_array):
+                bin_intensity_mapping[bin_] = float(intensity)
+            bin_intensity_mapping_list.append(bin_intensity_mapping)
 
-        return bin_energy_mapping_list
+        return bin_intensity_mapping_list
