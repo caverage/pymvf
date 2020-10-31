@@ -53,10 +53,17 @@ class Buffer(BufferStub):
     See: BufferStub.
 
     Attributes:
-        mono_bin_energy_mapping: mono bin rms
-        left_bin_energy_mapping: bin rms of left channel
-        right_bin_energy_mapping: bin rms of right channel
+        mono_intensity: average intensity of channel
+        left_intensity: average intensity of channel
+        right_intensity: average intensity of channel
+        mono_bin_intensity_mapping: mono bin intensity
+        left_bin_intensity_mapping: bin intensity of left channel
+        right_bin_intensity_mapping: bin intensity of right channel
     """
+
+    mono_intensity: Dict[Tuple[int, int], np.ndarray]
+    left_intensity: Dict[Tuple[int, int], np.ndarray]
+    right_intensity: Dict[Tuple[int, int], np.ndarray]
 
     mono_bin_intensity_mapping: Dict[Tuple[int, int], np.ndarray]
     left_bin_intensity_mapping: Dict[Tuple[int, int], np.ndarray]

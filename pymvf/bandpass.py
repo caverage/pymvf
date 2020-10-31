@@ -46,9 +46,6 @@ class MaxEnergyTracker:
 
         decrease_ammount = self.all_time_max_energy / (self._buffers_per_second * 10)
         # decrease the max energy by 1/3th of the all time max energy per second
-        LOGGER.info(
-            f"max decreased by {round(decrease_ammount/self.max_energy, 2)} percent"
-        )
 
         self.max_energy = self.max_energy - decrease_ammount
 

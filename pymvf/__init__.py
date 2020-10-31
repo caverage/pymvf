@@ -204,6 +204,19 @@ class PyMVF:
                 left_bin_intensities_mapping_list,
                 right_bin_intensities_mapping_list,
             ):
+                mono_intensity = np.average(
+                    np.array(list(mono_bin_intensity_mapping.values()))
+                )
+                left_intensity = np.average(
+                    np.array(list(left_bin_intensity_mapping.values()))
+                )
+                right_intensity = np.average(
+                    np.array(list(right_bin_intensity_mapping.values()))
+                )
+                assert mono_intensity <= 1
+                assert left_intensity <= 1
+                assert right_intensity <= 1
+
                 finished_buffer = buffer.Buffer(
                     id=stub.id,
                     timestamp=stub.timestamp,
@@ -211,6 +224,9 @@ class PyMVF:
                     left_rms=stub.left_rms,
                     right_rms=stub.right_rms,
                     beat=stub.beat,
+                    mono_intensity=mono_intensity,
+                    left_intensity=left_intensity,
+                    right_intensity=right_intensity,
                     mono_bin_intensity_mapping=mono_bin_intensity_mapping,
                     left_bin_intensity_mapping=left_bin_intensity_mapping,
                     right_bin_intensity_mapping=right_bin_intensity_mapping,
